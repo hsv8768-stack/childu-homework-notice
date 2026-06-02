@@ -121,8 +121,7 @@ export default function Page() {
             </div>
 
             <div className="note-box">
-              📌 개인정보 보호를 위해 반 목록, 레벨, 같은 반 학생 명단은 공개되지 않습니다.
-              학생 이름과 보호자 확인번호가 일치할 때만 안내장을 확인할 수 있습니다.
+              📌 학생이름과 보호자 확인번호를 확인한 후, 바르게 입력해주시길 바랍니다.
             </div>
 
             <form onSubmit={submitNotice} className="panel">
@@ -142,7 +141,7 @@ export default function Page() {
                   <input
                     value={studentName}
                     onChange={(event) => setStudentName(event.target.value)}
-                    placeholder="예: 김채은"
+                    placeholder="예: ㅇㅇㅇ"
                     autoComplete="off"
                     style={{
                       width: "100%",
