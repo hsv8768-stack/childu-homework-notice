@@ -365,19 +365,74 @@ export function getHomeworkFromPage(page) {
 }
 
 export function getAlertFromPage(page) {
-  const rawLevel = propText(getProp(page, ["레벨", "반", "level", "Level"]));
+  const rawLevel = propText(
+    getProp(page, ["레벨/반", "레벨", "반", "level", "Level"])
+  );
 
   return {
     title: propText(getProp(page, ["알림제목", "제목", "Name", "name"])),
+
     date: propText(getProp(page, ["날짜", "date", "Date"])),
+
     rawLevel: String(rawLevel || "").trim(),
     level: normalizeLevel(rawLevel),
-    studentName: propText(getProp(page, ["학생명", "이름", "studentName", "Name"])).trim(),
-    word: propText(getProp(page, ["단어시험", "단어 시험", "단어"])),
-    grammar: propText(getProp(page, ["문법시험", "문법 시험", "문법"])),
-    retest: propText(getProp(page, ["재시험", "재시험 여부"])),
-    memo: propText(getProp(page, ["개별메모", "메모", "개별 안내"])),
-    public: propCheckbox(getProp(page, ["공개", "public", "Public"]), true)
+
+    studentName: propText(
+      getProp(page, ["학생명", "이름", "studentName", "Name", "name"])
+    ).trim(),
+
+    word: propText(
+      getProp(page, ["단어시험", "단어 시험", "단어"])
+    ),
+
+    grammar: propText(
+      getProp(page, ["문법시험", "문법 시험", "문법"])
+    ),
+
+    retest: propText(
+      getProp(page, ["재시험", "재시험 여부"])
+    ),
+
+    memo: propText(
+      getProp(page, ["개별 안내", "개별안내", "개별메모", "메모", "개별 메모"])
+    ),
+
+    individualNotice: propText(
+      getProp(page, [
+        "개별전달사항",
+        "개별 전달사항",
+        "개별전당사항",
+        "개별 전당사항",
+        "전달사항",
+        "개별공지",
+        "개별 공지"
+      ])
+    ),
+
+    individualHomework: propText(
+      getProp(page, [
+        "개별숙제",
+        "개별 숙제",
+        "숙제메모",
+        "숙제 메모",
+        "개별과제",
+        "개별 과제"
+      ])
+    ),
+
+    homeworkStatus: propText(
+      getProp(page, [
+        "숙제상태",
+        "숙제 상태",
+        "지난숙제상태",
+        "지난 숙제 상태"
+      ])
+    ),
+
+    public: propCheckbox(
+      getProp(page, ["공개", "public", "Public"]),
+      true
+    )
   };
 }
 
