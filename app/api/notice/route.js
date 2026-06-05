@@ -48,6 +48,7 @@ export async function POST(request) {
 
     const targetDate = todayKst();
 
+    // 1. 학생목록에서 학생 이름 + 확인번호 확인
     const studentPages = await notionQuery(process.env.NOTION_STUDENTS_DB_ID);
 
     const students = studentPages
@@ -78,6 +79,7 @@ export async function POST(request) {
 
     const studentLevel = normalizeLevel(student.rawLevel || student.level);
 
+    // 2. 반별 숙제 불러오기
     const homeworkPages = await notionQuery(process.env.NOTION_HOMEWORK_DB_ID);
 
     const homeworkItems = homeworkPages
@@ -90,42 +92,43 @@ export async function POST(request) {
 
     const homework = latestByDate(homeworkItems, targetDate);
 
+    // 3. 개별 단어/문법/개별 안내 불러오기
     const alertPages = await notionQuery(process.env.NOTION_EXAM_ALERTS_DB_ID);
 
     const alertItems = alertPages
       .map(getAlertFromPage)
       .filter((alert) => alert.public !== false)
-      .filter((alert) => compactName(alert.studentName) === compactName(student.name))
+      .filter(
+        (alert) => compactName(alert.studentName) === compactName(student.name)
+      )
       .filter((alert) => {
         const alertLevel = normalizeLevel(alert.rawLevel || alert.level);
 
+        // 레벨/반이 비어 있으면 이름만 맞아도 허용
         if (!alertLevel) return true;
 
+        // 레벨/반이 있으면 학생 레벨과 같을 때만 허용
         return alertLevel === studentLevel;
       });
 
-    const alert = latestByDate(
-      homework?.date
-        ? alertItems.filter(
-            (item) =>
-              String(item.date).slice(0, 10) ===
-              String(homework.date).slice(0, 10)
-          )
-        : alertItems,
-      targetDate
-    );
+    // 반별 숙제 날짜와 무조건 같아야 하는 구조가 아니라,
+    // 해당 학생의 오늘 또는 가장 최근 공개 개별 알림을 표시합니다.
+    const alert = latestByDate(alertItems, targetDate);
 
     return Response.json({
       source: "notion",
       studentName: student.name,
-      date: homework?.date || targetDate,
+      date: homework?.date || alert?.date || targetDate,
 
       alert: alert
         ? {
             word: alert.word || "-",
             grammar: alert.grammar || "-",
             retest: alert.retest || "-",
-            memo: alert.memo || ""
+            memo: alert.memo || "",
+            individualNotice: alert.individualNotice || "",
+            individualHomework: alert.individualHomework || "",
+            homeworkStatus: alert.homeworkStatus || ""
           }
         : null,
 
