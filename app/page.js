@@ -218,19 +218,56 @@ export default function Page() {
                       <div className="k">단어</div>
                       <div className="v">{notice.alert.word || "-"}</div>
                     </div>
+
                     <div className="score">
                       <div className="k">문법</div>
                       <div className="v">{notice.alert.grammar || "-"}</div>
                     </div>
+
                     <div className="score">
                       <div className="k">재시험</div>
                       <div className="v">{notice.alert.retest || "-"}</div>
                     </div>
                   </div>
 
-                  <div className="memo">
-                    {notice.alert.memo || "개별 메모는 없습니다."}
-                  </div>
+                  {notice.alert.homeworkStatus && (
+                    <div className="memo">
+                      <strong>숙제 확인</strong>
+                      <br />
+                      {notice.alert.homeworkStatus}
+                    </div>
+                  )}
+
+                  {notice.alert.individualNotice && (
+                    <div className="memo">
+                      <strong>개별 전달사항</strong>
+                      <br />
+                      {notice.alert.individualNotice}
+                    </div>
+                  )}
+
+                  {notice.alert.individualHomework && (
+                    <div className="memo">
+                      <strong>개별 숙제</strong>
+                      <br />
+                      {notice.alert.individualHomework}
+                    </div>
+                  )}
+
+                  {notice.alert.memo && (
+                    <div className="memo">
+                      <strong>개별 안내</strong>
+                      <br />
+                      {notice.alert.memo}
+                    </div>
+                  )}
+
+                  {!notice.alert.homeworkStatus &&
+                    !notice.alert.individualNotice &&
+                    !notice.alert.individualHomework &&
+                    !notice.alert.memo && (
+                      <div className="memo">개별 안내는 없습니다.</div>
+                    )}
                 </div>
               ) : (
                 <div className="memo">
@@ -247,12 +284,6 @@ export default function Page() {
               <div>
                 <SectionCard icon="✅" tone="blue" title="지난 숙제">
                   {notice.homework.previous || "-"}
-                </SectionCard>
-
-                <SectionCard icon="✏️" tone="violet" title="단어 · 문법 확인">
-                  {`단어 시험: ${notice.homework.word || "-"}\n문법 시험: ${
-                    notice.homework.grammar || "-"
-                  }`}
                 </SectionCard>
 
                 <SectionCard icon="📣" tone="rose" title="전달사항">
