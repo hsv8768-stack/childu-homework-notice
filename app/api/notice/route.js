@@ -11,10 +11,52 @@ import {
   todayKst
 } from "../_lib/notion";
 
+import {
+  getHomeworkHistory,
+  saveHomeworkSnapshot
+} from "../_lib/homeworkHistory";
+
 export const dynamic = "force-dynamic";
 
 function compactName(value) {
   return String(value || "").replace(/\s/g, "").trim();
+}
+
+function makeHomeworkPayload(homework) {
+  if (!homework) return null;
+
+  return {
+    previous: homework.previous || "-",
+    word: homework.word || "-",
+    grammar: homework.grammar || "-",
+    notice: homework.notice || "-",
+    todayClass: homework.todayClass || "-",
+    homework: homework.homework || "-",
+    online: homework.online || "-"
+  };
+}
+
+function mergeHistoryWithToday(history, todayDate, todayHomework) {
+  const map = new Map();
+
+  if (todayHomework) {
+    map.set(todayDate, {
+      date: todayDate,
+      homework: todayHomework
+    });
+  }
+
+  for (const item of history || []) {
+    if (!item?.date || !item?.homework) continue;
+
+    if (!map.has(item.date)) {
+      map.set(item.date, item);
+    }
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+    .slice(0, 7);
 }
 
 export async function POST(request) {
@@ -36,7 +78,8 @@ export async function POST(request) {
         return Response.json({
           source: "sample",
           ...sampleNotice,
-          studentName
+          studentName,
+          homeworkHistory: []
         });
       }
 
@@ -91,8 +134,25 @@ export async function POST(request) {
       });
 
     const homework = latestByDate(homeworkItems, targetDate);
+    const homeworkPayload = makeHomeworkPayload(homework);
 
-    // 3. 개별 단어/문법/개별 안내 불러오기
+    const homeworkDate = homework?.date || targetDate;
+
+    // 3. 오늘 숙제를 사이트 저장소에 8일 동안 저장
+    if (homeworkPayload) {
+      await saveHomeworkSnapshot(studentLevel, homeworkDate, homeworkPayload);
+    }
+
+    // 4. 최근 7일 숙제 기록 불러오기
+    const savedHistory = await getHomeworkHistory(studentLevel, targetDate);
+
+    const homeworkHistory = mergeHistoryWithToday(
+      savedHistory,
+      homeworkDate,
+      homeworkPayload
+    );
+
+    // 5. 개별 단어/문법/개별 안내 불러오기
     const alertPages = await notionQuery(process.env.NOTION_EXAM_ALERTS_DB_ID);
 
     const alertItems = alertPages
@@ -111,14 +171,12 @@ export async function POST(request) {
         return alertLevel === studentLevel;
       });
 
-    // 반별 숙제 날짜와 무조건 같아야 하는 구조가 아니라,
-    // 해당 학생의 오늘 또는 가장 최근 공개 개별 알림을 표시합니다.
     const alert = latestByDate(alertItems, targetDate);
 
     return Response.json({
       source: "notion",
       studentName: student.name,
-      date: homework?.date || alert?.date || targetDate,
+      date: homeworkDate || alert?.date || targetDate,
 
       alert: alert
         ? {
@@ -132,17 +190,9 @@ export async function POST(request) {
           }
         : null,
 
-      homework: homework
-        ? {
-            previous: homework.previous || "-",
-            word: homework.word || "-",
-            grammar: homework.grammar || "-",
-            notice: homework.notice || "-",
-            todayClass: homework.todayClass || "-",
-            homework: homework.homework || "-",
-            online: homework.online || "-"
-          }
-        : null
+      homework: homeworkPayload,
+
+      homeworkHistory
     });
   } catch (error) {
     return Response.json(
