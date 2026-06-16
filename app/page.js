@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 function todayText() {
   return new Date().toLocaleDateString("ko-KR", {
@@ -9,6 +9,23 @@ function todayText() {
     month: "long",
     day: "numeric",
     weekday: "long"
+  });
+}
+
+function formatDateLabel(dateString) {
+  if (!dateString) return "";
+
+  const date = new Date(`${dateString}T00:00:00+09:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateString;
+  }
+
+  return date.toLocaleDateString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "numeric",
+    day: "numeric",
+    weekday: "short"
   });
 }
 
@@ -28,8 +45,30 @@ export default function Page() {
   const [studentName, setStudentName] = useState("");
   const [pin, setPin] = useState("");
   const [notice, setNotice] = useState(null);
+  const [selectedDate, setSelectedDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const selectedHomework = useMemo(() => {
+    if (!notice) return null;
+
+    if (notice.homeworkHistory?.length) {
+      const target =
+        notice.homeworkHistory.find((item) => item.date === selectedDate) ||
+        notice.homeworkHistory[0];
+
+      return target;
+    }
+
+    if (notice.homework) {
+      return {
+        date: notice.date,
+        homework: notice.homework
+      };
+    }
+
+    return null;
+  }, [notice, selectedDate]);
 
   async function submitNotice(event) {
     event.preventDefault();
@@ -70,6 +109,13 @@ export default function Page() {
       }
 
       setNotice(data);
+
+      if (data.homeworkHistory?.length) {
+        setSelectedDate(data.homeworkHistory[0].date);
+      } else {
+        setSelectedDate(data.date || "");
+      }
+
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError("안내장을 불러오는 중 오류가 발생했습니다.");
@@ -82,6 +128,7 @@ export default function Page() {
     setNotice(null);
     setStudentName("");
     setPin("");
+    setSelectedDate("");
     setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -276,30 +323,92 @@ export default function Page() {
               )}
             </div>
 
-            {!notice.homework ? (
+            {notice.homeworkHistory?.length > 0 && (
+              <div className="panel" style={{ marginTop: "16px" }}>
+                <div className="panel-head">📅 숙제 날짜 선택</div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    overflowX: "auto",
+                    paddingBottom: "4px"
+                  }}
+                >
+                  {notice.homeworkHistory.map((item, index) => (
+                    <button
+                      key={item.date}
+                      type="button"
+                      onClick={() => setSelectedDate(item.date)}
+                      style={{
+                        flex: "0 0 auto",
+                        border:
+                          selectedDate === item.date
+                            ? "2px solid #2563eb"
+                            : "1px solid #e5e7eb",
+                        background:
+                          selectedDate === item.date ? "#eff6ff" : "#ffffff",
+                        borderRadius: "999px",
+                        padding: "10px 14px",
+                        fontSize: "14px",
+                        fontWeight: 900,
+                        color:
+                          selectedDate === item.date ? "#1d4ed8" : "#374151"
+                      }}
+                    >
+                      {index === 0 ? "오늘" : formatDateLabel(item.date)}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "10px",
+                    fontSize: "13px",
+                    color: "#6b7280",
+                    lineHeight: 1.5
+                  }}
+                >
+                  최근 7일 동안 저장된 숙제를 확인할 수 있습니다.
+                </div>
+              </div>
+            )}
+
+            {!selectedHomework?.homework ? (
               <div className="error-box">
-                오늘 등록된 숙제가 없습니다. 학원에서 순차적으로 업데이트 중입니다.
+                선택한 날짜에 등록된 숙제가 없습니다. 학원에서 순차적으로 업데이트 중입니다.
               </div>
             ) : (
               <div>
+                <div
+                  style={{
+                    margin: "18px 2px 10px",
+                    fontSize: "15px",
+                    fontWeight: 900,
+                    color: "#374151"
+                  }}
+                >
+                  📌 {formatDateLabel(selectedHomework.date)} 숙제 안내
+                </div>
+
                 <SectionCard icon="✅" tone="blue" title="지난 숙제">
-                  {notice.homework.previous || "-"}
+                  {selectedHomework.homework.previous || "-"}
                 </SectionCard>
 
                 <SectionCard icon="📣" tone="rose" title="전달사항">
-                  {notice.homework.notice || "-"}
+                  {selectedHomework.homework.notice || "-"}
                 </SectionCard>
 
                 <SectionCard icon="📘" tone="yellow" title="오늘의 수업">
-                  {notice.homework.todayClass || "-"}
+                  {selectedHomework.homework.todayClass || "-"}
                 </SectionCard>
 
                 <SectionCard icon="📝" tone="orange" title="오늘의 숙제">
-                  {notice.homework.homework || "-"}
+                  {selectedHomework.homework.homework || "-"}
                 </SectionCard>
 
                 <SectionCard icon="✨" tone="green" title="온라인 숙제">
-                  {notice.homework.online || "-"}
+                  {selectedHomework.homework.online || "-"}
                 </SectionCard>
               </div>
             )}
