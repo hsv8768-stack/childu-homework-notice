@@ -29,6 +29,26 @@ function formatDateLabel(dateString) {
   });
 }
 
+function todayIsoKst(offset = 0) {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+
+  kst.setUTCDate(kst.getUTCDate() + offset);
+
+  const year = kst.getUTCFullYear();
+  const month = String(kst.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(kst.getUTCDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function dateButtonLabel(dateString) {
+  if (dateString === todayIsoKst(0)) return "오늘";
+  if (dateString === todayIsoKst(-1)) return "어제";
+
+  return formatDateLabel(dateString);
+}
+
 function SectionCard({ icon, tone, title, children }) {
   return (
     <div className="info-card">
@@ -335,7 +355,7 @@ export default function Page() {
                     paddingBottom: "4px"
                   }}
                 >
-                  {notice.homeworkHistory.map((item, index) => (
+                  {notice.homeworkHistory.map((item) => (
                     <button
                       key={item.date}
                       type="button"
@@ -356,7 +376,7 @@ export default function Page() {
                           selectedDate === item.date ? "#1d4ed8" : "#374151"
                       }}
                     >
-                      {index === 0 ? "오늘" : formatDateLabel(item.date)}
+                      {dateButtonLabel(item.date)}
                     </button>
                   ))}
                 </div>
