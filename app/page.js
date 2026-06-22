@@ -90,6 +90,14 @@ export default function Page() {
     return null;
   }, [notice, selectedDate]);
 
+  const sortedHistory = useMemo(() => {
+    if (!notice?.homeworkHistory?.length) return [];
+
+    return [...notice.homeworkHistory].sort((a, b) =>
+      String(a.date).localeCompare(String(b.date))
+    );
+  }, [notice]);
+
   async function submitNotice(event) {
     event.preventDefault();
 
@@ -343,7 +351,7 @@ export default function Page() {
               )}
             </div>
 
-            {notice.homeworkHistory?.length > 0 && (
+            {sortedHistory.length > 0 && (
               <div className="panel" style={{ marginTop: "16px" }}>
                 <div className="panel-head">📅 숙제 날짜 선택</div>
 
@@ -355,30 +363,45 @@ export default function Page() {
                     paddingBottom: "4px"
                   }}
                 >
-                  {notice.homeworkHistory.map((item) => (
-                    <button
-                      key={item.date}
-                      type="button"
-                      onClick={() => setSelectedDate(item.date)}
-                      style={{
-                        flex: "0 0 auto",
-                        border:
-                          selectedDate === item.date
+                  {sortedHistory.map((item) => {
+                    const isToday = item.date === todayIsoKst(0);
+                    const isSelected = selectedDate === item.date;
+
+                    return (
+                      <button
+                        key={item.date}
+                        type="button"
+                        onClick={() => setSelectedDate(item.date)}
+                        style={{
+                          flex: "0 0 auto",
+                          border: isToday
+                            ? "2px solid #ef4444"
+                            : isSelected
                             ? "2px solid #2563eb"
                             : "1px solid #e5e7eb",
-                        background:
-                          selectedDate === item.date ? "#eff6ff" : "#ffffff",
-                        borderRadius: "999px",
-                        padding: "10px 14px",
-                        fontSize: "14px",
-                        fontWeight: 900,
-                        color:
-                          selectedDate === item.date ? "#1d4ed8" : "#374151"
-                      }}
-                    >
-                      {dateButtonLabel(item.date)}
-                    </button>
-                  ))}
+                          background: isToday
+                            ? "#ef4444"
+                            : isSelected
+                            ? "#eff6ff"
+                            : "#ffffff",
+                          borderRadius: "999px",
+                          padding: "10px 14px",
+                          fontSize: "14px",
+                          fontWeight: 900,
+                          color: isToday
+                            ? "#ffffff"
+                            : isSelected
+                            ? "#1d4ed8"
+                            : "#374151",
+                          boxShadow: isToday
+                            ? "0 8px 18px rgba(239, 68, 68, 0.22)"
+                            : "none"
+                        }}
+                      >
+                        {dateButtonLabel(item.date)}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <div
