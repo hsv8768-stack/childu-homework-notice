@@ -22,6 +22,14 @@ function compactName(value) {
   return String(value || "").replace(/\s/g, "").trim();
 }
 
+function compactLevel(value) {
+  return String(value || "").replace(/\s/g, "").trim();
+}
+
+function rawLevelOf(item) {
+  return String(item?.rawLevel || item?.level || "").trim();
+}
+
 function makeHomeworkPayload(homework) {
   if (!homework) return null;
 
@@ -36,22 +44,82 @@ function makeHomeworkPayload(homework) {
   };
 }
 
-function mergeHistoryWithToday(history, todayDate, todayHomework) {
+function pickHomeworkForStudent(homeworkItems, studentRawLevel, targetDate) {
+  const studentExactLevel = compactLevel(studentRawLevel);
+  const studentBaseLevel = compactLevel(normalizeLevel(studentRawLevel));
+
+  const exactItems = homeworkItems.filter(
+    (homework) => compactLevel(rawLevelOf(homework)) === studentExactLevel
+  );
+
+  const baseItems = homeworkItems.filter(
+    (homework) => compactLevel(rawLevelOf(homework)) === studentBaseLevel
+  );
+
+  const exactHomework = latestByDate(exactItems, targetDate);
+  const baseHomework = latestByDate(baseItems, targetDate);
+
+  // 원칙:
+  // 1. GR103(1)처럼 학생의 정확한 레벨 숙제가 있으면 그걸 우선 사용
+  // 2. 단, 정확한 레벨 숙제가 오래된 날짜이고, GR103 공통 숙제가 더 최신이면 공통 숙제 사용
+  // 3. GR103 학생은 GR103(1) 숙제를 가져가지 않음
+  if (exactHomework && baseHomework) {
+    const exactDate = String(exactHomework.date || "");
+    const baseDate = String(baseHomework.date || "");
+
+    if (exactDate >= baseDate) {
+      return exactHomework;
+    }
+
+    return baseHomework;
+  }
+
+  return exactHomework || baseHomework || null;
+}
+
+function levelMatchesExactOrBase(itemRawLevel, studentRawLevel) {
+  const itemLevel = compactLevel(itemRawLevel);
+  const exactLevel = compactLevel(studentRawLevel);
+  const baseLevel = compactLevel(normalizeLevel(studentRawLevel));
+
+  if (!itemLevel) return true;
+
+  return itemLevel === exactLevel || itemLevel === baseLevel;
+}
+
+function mergeHistoryItems(...histories) {
   const map = new Map();
 
-  if (todayHomework) {
-    map.set(todayDate, {
-      date: todayDate,
-      homework: todayHomework
-    });
+  for (const history of histories) {
+    for (const item of history || []) {
+      if (!item?.date || !item?.homework) continue;
+
+      map.set(item.date, {
+        date: item.date,
+        homework: item.homework
+      });
+    }
   }
+
+  return Array.from(map.values())
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+    .slice(0, 7);
+}
+
+function mergeHistoryWithToday(history, todayDate, todayHomework) {
+  const map = new Map();
 
   for (const item of history || []) {
     if (!item?.date || !item?.homework) continue;
 
-    if (!map.has(item.date)) {
-      map.set(item.date, item);
-    }
+    map.set(item.date, item);
+  }
+
+  if (todayHomework && todayDate) {
+    map.set(todayDate, {
+      date: todayDate,
+      homework: todayHomework
+    });
   }
 
   return Array.from(map.values())
@@ -120,34 +188,54 @@ export async function POST(request) {
       );
     }
 
-    const studentLevel = normalizeLevel(student.rawLevel || student.level);
+    const studentRawLevel = String(student.rawLevel || student.level || "").trim();
+    const studentBaseLevel = normalizeLevel(studentRawLevel);
 
     // 2. 반별 숙제 불러오기
     const homeworkPages = await notionQuery(process.env.NOTION_HOMEWORK_DB_ID);
 
     const homeworkItems = homeworkPages
       .map(getHomeworkFromPage)
-      .filter((homework) => homework.public !== false)
-      .filter((homework) => {
-        const homeworkLevel = normalizeLevel(homework.rawLevel || homework.level);
-        return homeworkLevel === studentLevel;
-      });
+      .filter((homework) => homework.public !== false);
 
-    const homework = latestByDate(homeworkItems, targetDate);
+    const homework = pickHomeworkForStudent(
+      homeworkItems,
+      studentRawLevel,
+      targetDate
+    );
+
     const homeworkPayload = makeHomeworkPayload(homework);
-
     const homeworkDate = homework?.date || targetDate;
+
+    const selectedHomeworkRawLevel = rawLevelOf(homework);
+    const selectedHomeworkLevelForHistory =
+      compactLevel(selectedHomeworkRawLevel) === compactLevel(studentRawLevel)
+        ? studentRawLevel
+        : studentBaseLevel;
 
     // 3. 오늘 숙제를 사이트 저장소에 8일 동안 저장
     if (homeworkPayload) {
-      await saveHomeworkSnapshot(studentLevel, homeworkDate, homeworkPayload);
+      await saveHomeworkSnapshot(
+        selectedHomeworkLevelForHistory,
+        homeworkDate,
+        homeworkPayload
+      );
     }
 
     // 4. 최근 7일 숙제 기록 불러오기
-    const savedHistory = await getHomeworkHistory(studentLevel, targetDate);
+    // GR103(1) 학생은 GR103 공통 숙제 기록 + GR103(1) 개별 숙제 기록을 함께 봅니다.
+    // 단, 같은 날짜에 둘 다 있으면 GR103(1) 개별 숙제가 우선됩니다.
+    const baseHistory = await getHomeworkHistory(studentBaseLevel, targetDate);
+
+    const exactHistory =
+      compactLevel(studentRawLevel) !== compactLevel(studentBaseLevel)
+        ? await getHomeworkHistory(studentRawLevel, targetDate)
+        : [];
+
+    const mergedSavedHistory = mergeHistoryItems(baseHistory, exactHistory);
 
     const homeworkHistory = mergeHistoryWithToday(
-      savedHistory,
+      mergedSavedHistory,
       homeworkDate,
       homeworkPayload
     );
@@ -161,15 +249,9 @@ export async function POST(request) {
       .filter(
         (alert) => compactName(alert.studentName) === compactName(student.name)
       )
-      .filter((alert) => {
-        const alertLevel = normalizeLevel(alert.rawLevel || alert.level);
-
-        // 레벨/반이 비어 있으면 이름만 맞아도 허용
-        if (!alertLevel) return true;
-
-        // 레벨/반이 있으면 학생 레벨과 같을 때만 허용
-        return alertLevel === studentLevel;
-      });
+      .filter((alert) =>
+        levelMatchesExactOrBase(alert.rawLevel || alert.level, studentRawLevel)
+      );
 
     const alert = latestByDate(alertItems, targetDate);
 
