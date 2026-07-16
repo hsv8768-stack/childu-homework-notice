@@ -295,7 +295,7 @@ export default function Page() {
                     </div>
 
                     <div className="score">
-                      <div className="k">문법</div>
+                      <div className="k">문법/독해</div>
                       <div className="v">{notice.alert.grammar || "-"}</div>
                     </div>
 
