@@ -16,6 +16,10 @@ import {
   saveHomeworkSnapshot
 } from "../_lib/homeworkHistory";
 
+import {
+  saveCheckRecord
+} from "../_lib/checkHistory";
+
 export const dynamic = "force-dynamic";
 
 function compactName(value) {
@@ -59,10 +63,15 @@ function pickHomeworkForStudent(homeworkItems, studentRawLevel, targetDate) {
   const exactHomework = latestByDate(exactItems, targetDate);
   const baseHomework = latestByDate(baseItems, targetDate);
 
-  // 원칙:
-  // 1. GR103(1)처럼 학생의 정확한 레벨 숙제가 있으면 그걸 우선 사용
-  // 2. 단, 정확한 레벨 숙제가 오래된 날짜이고, GR103 공통 숙제가 더 최신이면 공통 숙제 사용
-  // 3. GR103 학생은 GR103(1) 숙제를 가져가지 않음
+  /*
+    예:
+    GR103 학생
+    → GR103만 사용
+
+    GR103(1) 학생
+    → GR103(1)이 있으면 우선 사용
+    → GR103(1)이 없고 GR103 공통 숙제가 있으면 GR103 사용
+  */
   if (exactHomework && baseHomework) {
     const exactDate = String(exactHomework.date || "");
     const baseDate = String(baseHomework.date || "");
@@ -159,27 +168,38 @@ export async function POST(request) {
 
     const targetDate = todayKst();
 
-    // 1. 학생목록에서 학생 이름 + 확인번호 확인
-    const studentPages = await notionQuery(process.env.NOTION_STUDENTS_DB_ID);
+    // 1. 학생 정보 확인
+    const studentPages = await notionQuery(
+      process.env.NOTION_STUDENTS_DB_ID
+    );
 
     const students = studentPages
       .map(getStudentFromPage)
-      .filter((student) => student.name && isActiveStudent(student.status));
+      .filter(
+        (student) =>
+          student.name && isActiveStudent(student.status)
+      );
 
     const requestedName = compactName(studentName);
 
     const sameNameStudents = students.filter(
-      (student) => compactName(student.name) === requestedName
+      (student) =>
+        compactName(student.name) === requestedName
     );
 
     if (sameNameStudents.length === 0) {
       return Response.json(
-        { error: "학생 정보를 찾을 수 없습니다. 이름을 다시 확인해 주세요." },
+        {
+          error:
+            "학생 정보를 찾을 수 없습니다. 이름을 다시 확인해 주세요."
+        },
         { status: 404 }
       );
     }
 
-    const student = sameNameStudents.find((student) => student.pin === pin);
+    const student = sameNameStudents.find(
+      (student) => student.pin === pin
+    );
 
     if (!student) {
       return Response.json(
@@ -188,15 +208,23 @@ export async function POST(request) {
       );
     }
 
-    const studentRawLevel = String(student.rawLevel || student.level || "").trim();
-    const studentBaseLevel = normalizeLevel(studentRawLevel);
+    const studentRawLevel = String(
+      student.rawLevel || student.level || ""
+    ).trim();
+
+    const studentBaseLevel =
+      normalizeLevel(studentRawLevel);
 
     // 2. 반별 숙제 불러오기
-    const homeworkPages = await notionQuery(process.env.NOTION_HOMEWORK_DB_ID);
+    const homeworkPages = await notionQuery(
+      process.env.NOTION_HOMEWORK_DB_ID
+    );
 
     const homeworkItems = homeworkPages
       .map(getHomeworkFromPage)
-      .filter((homework) => homework.public !== false);
+      .filter(
+        (homework) => homework.public !== false
+      );
 
     const homework = pickHomeworkForStudent(
       homeworkItems,
@@ -204,16 +232,22 @@ export async function POST(request) {
       targetDate
     );
 
-    const homeworkPayload = makeHomeworkPayload(homework);
-    const homeworkDate = homework?.date || targetDate;
+    const homeworkPayload =
+      makeHomeworkPayload(homework);
 
-    const selectedHomeworkRawLevel = rawLevelOf(homework);
+    const homeworkDate =
+      homework?.date || targetDate;
+
+    const selectedHomeworkRawLevel =
+      rawLevelOf(homework);
+
     const selectedHomeworkLevelForHistory =
-      compactLevel(selectedHomeworkRawLevel) === compactLevel(studentRawLevel)
+      compactLevel(selectedHomeworkRawLevel) ===
+      compactLevel(studentRawLevel)
         ? studentRawLevel
         : studentBaseLevel;
 
-    // 3. 오늘 숙제를 사이트 저장소에 8일 동안 저장
+    // 3. 숙제 기록 저장
     if (homeworkPayload) {
       await saveHomeworkSnapshot(
         selectedHomeworkLevelForHistory,
@@ -222,43 +256,85 @@ export async function POST(request) {
       );
     }
 
-    // 4. 최근 7일 숙제 기록 불러오기
-    // GR103(1) 학생은 GR103 공통 숙제 기록 + GR103(1) 개별 숙제 기록을 함께 봅니다.
-    // 단, 같은 날짜에 둘 다 있으면 GR103(1) 개별 숙제가 우선됩니다.
-    const baseHistory = await getHomeworkHistory(studentBaseLevel, targetDate);
+    // 4. 최근 숙제 기록 불러오기
+    const baseHistory =
+      await getHomeworkHistory(
+        studentBaseLevel,
+        targetDate
+      );
 
     const exactHistory =
-      compactLevel(studentRawLevel) !== compactLevel(studentBaseLevel)
-        ? await getHomeworkHistory(studentRawLevel, targetDate)
+      compactLevel(studentRawLevel) !==
+      compactLevel(studentBaseLevel)
+        ? await getHomeworkHistory(
+            studentRawLevel,
+            targetDate
+          )
         : [];
 
-    const mergedSavedHistory = mergeHistoryItems(baseHistory, exactHistory);
+    const mergedSavedHistory =
+      mergeHistoryItems(
+        baseHistory,
+        exactHistory
+      );
 
-    const homeworkHistory = mergeHistoryWithToday(
-      mergedSavedHistory,
-      homeworkDate,
-      homeworkPayload
+    const homeworkHistory =
+      mergeHistoryWithToday(
+        mergedSavedHistory,
+        homeworkDate,
+        homeworkPayload
+      );
+
+    // 5. 개별 단어 / 문법·독해 / 재시험 안내 불러오기
+    const alertPages = await notionQuery(
+      process.env.NOTION_EXAM_ALERTS_DB_ID
     );
-
-    // 5. 개별 단어/문법/개별 안내 불러오기
-    const alertPages = await notionQuery(process.env.NOTION_EXAM_ALERTS_DB_ID);
 
     const alertItems = alertPages
       .map(getAlertFromPage)
-      .filter((alert) => alert.public !== false)
       .filter(
-        (alert) => compactName(alert.studentName) === compactName(student.name)
+        (alert) => alert.public !== false
+      )
+      .filter(
+        (alert) =>
+          compactName(alert.studentName) ===
+          compactName(student.name)
       )
       .filter((alert) =>
-        levelMatchesExactOrBase(alert.rawLevel || alert.level, studentRawLevel)
+        levelMatchesExactOrBase(
+          alert.rawLevel || alert.level,
+          studentRawLevel
+        )
       );
 
-    const alert = latestByDate(alertItems, targetDate);
+    const alert =
+      latestByDate(alertItems, targetDate);
 
+    /*
+      6. 학부모 숙제 안내장 확인 기록 저장
+
+      여기까지 왔다는 것은
+      학생 이름 + 보호자 확인번호가 모두 일치해서
+      실제 안내장을 정상적으로 열었다는 뜻입니다.
+
+      보호자 확인번호 자체는 저장하지 않습니다.
+    */
+    await saveCheckRecord({
+      studentName: student.name,
+      level: studentRawLevel,
+      homeworkDate
+    });
+
+    // 7. 학부모 화면으로 최종 데이터 전달
     return Response.json({
       source: "notion",
+
       studentName: student.name,
-      date: homeworkDate || alert?.date || targetDate,
+
+      date:
+        homeworkDate ||
+        alert?.date ||
+        targetDate,
 
       alert: alert
         ? {
@@ -266,9 +342,12 @@ export async function POST(request) {
             grammar: alert.grammar || "-",
             retest: alert.retest || "-",
             memo: alert.memo || "",
-            individualNotice: alert.individualNotice || "",
-            individualHomework: alert.individualHomework || "",
-            homeworkStatus: alert.homeworkStatus || ""
+            individualNotice:
+              alert.individualNotice || "",
+            individualHomework:
+              alert.individualHomework || "",
+            homeworkStatus:
+              alert.homeworkStatus || ""
           }
         : null,
 
@@ -279,8 +358,11 @@ export async function POST(request) {
   } catch (error) {
     return Response.json(
       {
-        error: "안내장을 불러오지 못했습니다.",
-        detail: String(error?.message || error)
+        error:
+          "안내장을 불러오지 못했습니다.",
+        detail: String(
+          error?.message || error
+        )
       },
       { status: 500 }
     );
