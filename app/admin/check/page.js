@@ -1,7 +1,9 @@
+
 "use client";
 
 import { useMemo, useState } from "react";
 
+// 한국 시간 기준 오늘 날짜
 function todayIsoKst() {
   const now = new Date();
   const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -13,6 +15,7 @@ function todayIsoKst() {
   return `${year}-${month}-${day}`;
 }
 
+// 날짜 표시
 function formatDate(dateString) {
   if (!dateString) return "";
 
@@ -31,14 +34,13 @@ function formatDate(dateString) {
   });
 }
 
+// 학부모 확인 시간 표시
 function formatCheckedTime(isoString) {
   if (!isoString) return "";
 
   const date = new Date(isoString);
 
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
+  if (Number.isNaN(date.getTime())) return "";
 
   return date.toLocaleTimeString("ko-KR", {
     timeZone: "Asia/Seoul",
@@ -47,20 +49,36 @@ function formatCheckedTime(isoString) {
   });
 }
 
+// 학생 구분
+function studentKey(student) {
+  return `${student.level || ""}::${student.name || ""}`;
+}
+
 export default function AdminCheckPage() {
+  // 관리자 로그인
   const [adminName, setAdminName] = useState("");
   const [adminPin, setAdminPin] = useState("");
 
+  // 확인 현황
   const [date, setDate] = useState(todayIsoKst());
-
   const [data, setData] = useState(null);
   const [selectedLevel, setSelectedLevel] = useState("전체");
-
   const [onlyUnchecked, setOnlyUnchecked] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // 개인 기록 저장
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [snapshotMessage, setSnapshotMessage] = useState("");
+
+  // AI 주간 요약
+  const [summaryBusy, setSummaryBusy] = useState("");
+  const [summaryTarget, setSummaryTarget] = useState("");
+  const [summaryText, setSummaryText] = useState("");
+  const [summaryMessage, setSummaryMessage] = useState("");
+
+  // 반 목록
   const levels = useMemo(() => {
     if (!data?.students?.length) return [];
 
@@ -75,6 +93,7 @@ export default function AdminCheckPage() {
     );
   }, [data]);
 
+  // 화면에 표시할 학생 목록
   const visibleStudents = useMemo(() => {
     if (!data?.students?.length) return [];
 
@@ -98,9 +117,7 @@ export default function AdminCheckPage() {
         "ko"
       );
 
-      if (levelCompare !== 0) {
-        return levelCompare;
-      }
+      if (levelCompare !== 0) return levelCompare;
 
       return String(a.name).localeCompare(
         String(b.name),
@@ -109,21 +126,17 @@ export default function AdminCheckPage() {
     });
   }, [data, selectedLevel, onlyUnchecked]);
 
+  // 확인 현황 집계
   const visibleSummary = useMemo(() => {
     if (!data?.students?.length) {
-      return {
-        total: 0,
-        checked: 0,
-        unchecked: 0
-      };
+      return { total: 0, checked: 0, unchecked: 0 };
     }
 
     const students =
       selectedLevel === "전체"
         ? data.students
         : data.students.filter(
-            (student) =>
-              student.level === selectedLevel
+            (student) => student.level === selectedLevel
           );
 
     const checked = students.filter(
@@ -137,10 +150,9 @@ export default function AdminCheckPage() {
     };
   }, [data, selectedLevel]);
 
+  // 관리자 확인 현황 조회
   async function loadStatus(event) {
-    if (event) {
-      event.preventDefault();
-    }
+    if (event) event.preventDefault();
 
     const cleanName = adminName.trim();
     const cleanPin = adminPin.trim();
@@ -159,27 +171,24 @@ export default function AdminCheckPage() {
       setLoading(true);
       setError("");
 
-      const response = await fetch(
-        "/api/admin/check",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            adminName: cleanName,
-            adminPin: cleanPin,
-            date
-          })
-        }
-      );
+      const response = await fetch("/api/admin/check", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          adminName: cleanName,
+          adminPin: cleanPin,
+          date
+        })
+      });
 
       const result = await response.json();
 
       if (!response.ok) {
         setError(
           result?.error ||
-            "확인 현황을 불러오지 못했습니다."
+          "확인 현황을 불러오지 못했습니다."
         );
         return;
       }
@@ -189,21 +198,20 @@ export default function AdminCheckPage() {
       if (
         selectedLevel !== "전체" &&
         !result.students?.some(
-          (student) =>
-            student.level === selectedLevel
+          (student) => student.level === selectedLevel
         )
       ) {
         setSelectedLevel("전체");
       }
-    } catch (error) {
-      setError(
-        "확인 현황을 불러오는 중 오류가 발생했습니다."
-      );
+
+    } catch {
+      setError("확인 현황을 불러오는 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   }
 
+  // 로그아웃
   function logout() {
     setData(null);
     setAdminName("");
@@ -211,11 +219,176 @@ export default function AdminCheckPage() {
     setSelectedLevel("전체");
     setOnlyUnchecked(false);
     setError("");
+    setSnapshotMessage("");
+    setSummaryTarget("");
+    setSummaryText("");
+    setSummaryMessage("");
+  }
+
+  // ========================================
+  // 오늘 개인별 점수 및 메시지 저장
+  // ========================================
+
+  async function saveTodaySnapshots() {
+    if (snapshotBusy) return;
+
+    setSnapshotBusy(true);
+    setSnapshotMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/admin/individual-snapshot",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            adminName: adminName.trim(),
+            adminPin
+          })
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || "개인 기록 저장에 실패했습니다."
+        );
+      }
+
+      const saved = Number(result.saved || 0);
+      const failed = Number(result.failed || 0);
+
+      if (failed > 0) {
+        setSnapshotMessage(
+          `⚠️ ${result.date} 일부 저장 실패\n` +
+          `저장 성공: ${saved}명\n` +
+          `저장 실패: ${failed}명`
+        );
+      } else if (saved === 0) {
+        setSnapshotMessage(
+          `⚠️ ${result.date} 저장된 개인 기록이 없습니다.\n` +
+          "노션에서 오늘 날짜와 개별 안내 내용을 확인해 주세요."
+        );
+      } else {
+        setSnapshotMessage(
+          `✅ ${result.date} 개인 기록 저장 완료!\n` +
+          `저장된 학생: ${saved}명\n` +
+          `저장 대상 없음 또는 제외: ${result.skipped ?? 0}명`
+        );
+      }
+
+    } catch (err) {
+      setSnapshotMessage(
+        `⚠️ ${err.message || "저장 오류가 발생했습니다."}`
+      );
+    } finally {
+      setSnapshotBusy(false);
+    }
+  }
+
+  // ========================================
+  // 학생별 AI 주간 요약 생성
+  // ========================================
+
+  async function generateWeeklySummary(student) {
+    if (summaryBusy) return;
+
+    const key = studentKey(student);
+
+    setSummaryBusy(key);
+    setSummaryTarget(key);
+    setSummaryText("");
+    setSummaryMessage("✨ AI가 주간 학습 기록을 분석하고 있습니다.");
+
+    try {
+      const response = await fetch(
+        "/api/admin/weekly-summary",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            adminName: adminName.trim(),
+            adminPin,
+            studentName: student.name,
+            level: student.level,
+            targetDate: date
+          })
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result.error ||
+          "AI 요약을 불러오지 못했습니다. 서버 설정을 확인해 주세요."
+        );
+      }
+
+      const message = String(
+        result.message || result.text || ""
+      ).trim();
+
+      if (!message) {
+        throw new Error("생성된 요약 내용이 없습니다.");
+      }
+
+      setSummaryText(message);
+
+      // 생성 완료 후 자동 복사 시도
+      try {
+        await navigator.clipboard.writeText(message);
+        setSummaryMessage(
+          "✅ 요약 생성 및 복사 완료! 내용을 검토해 주세요."
+        );
+      } catch {
+        setSummaryMessage(
+          "✅ 요약 생성 완료! 자동 복사가 제한되어 아래 복사 버튼을 이용해 주세요."
+        );
+      }
+
+    } catch (err) {
+      setSummaryMessage(
+        `⚠️ ${err.message || "AI 요약 오류가 발생했습니다."}`
+      );
+    } finally {
+      setSummaryBusy("");
+    }
+  }
+
+  // 수정된 요약본 다시 복사
+  async function copyWeeklySummary() {
+    if (!summaryText.trim()) return;
+
+    try {
+      await navigator.clipboard.writeText(summaryText);
+      setSummaryMessage(
+        "✅ 현재 요약 문구를 복사했습니다. 카카오톡에 붙여넣으세요."
+      );
+    } catch {
+      setSummaryMessage(
+        "⚠️ 복사에 실패했습니다. 문구를 직접 선택해 복사해 주세요."
+      );
+    }
+  }
+
+  // 요약 닫기
+  function closeWeeklySummary() {
+    setSummaryTarget("");
+    setSummaryText("");
+    setSummaryMessage("");
   }
 
   return (
     <div className="admin-page">
       <div className="admin-wrap">
+
+        {/* 상단 제목 */}
         <header className="admin-header">
           <div>
             <div className="admin-brand">
@@ -242,6 +415,9 @@ export default function AdminCheckPage() {
         </header>
 
         {!data ? (
+          // ==================================
+          // 관리자 로그인
+          // ==================================
           <form
             className="login-card"
             onSubmit={loadStatus}
@@ -252,7 +428,6 @@ export default function AdminCheckPage() {
 
             <label>
               <span>관리자 이름</span>
-
               <input
                 type="text"
                 value={adminName}
@@ -266,7 +441,6 @@ export default function AdminCheckPage() {
 
             <label>
               <span>관리자 비밀번호</span>
-
               <input
                 type="password"
                 value={adminPin}
@@ -280,7 +454,6 @@ export default function AdminCheckPage() {
 
             <label>
               <span>조회 날짜</span>
-
               <input
                 type="date"
                 value={date}
@@ -291,9 +464,7 @@ export default function AdminCheckPage() {
             </label>
 
             {error && (
-              <div className="error-box">
-                {error}
-              </div>
+              <div className="error-box">{error}</div>
             )}
 
             <button
@@ -301,18 +472,20 @@ export default function AdminCheckPage() {
               className="login-button"
               disabled={loading}
             >
-              {loading
-                ? "불러오는 중..."
-                : "확인 현황 보기"}
+              {loading ? "불러오는 중..." : "확인 현황 보기"}
             </button>
           </form>
+
         ) : (
           <>
+            {/* ============================== */}
+            {/* 날짜별 확인 현황 */}
+            {/* ============================== */}
+
             <section className="control-card">
               <div className="date-area">
                 <label>
                   <span>조회 날짜</span>
-
                   <input
                     type="date"
                     value={date}
@@ -328,9 +501,7 @@ export default function AdminCheckPage() {
                   onClick={loadStatus}
                   disabled={loading}
                 >
-                  {loading
-                    ? "조회 중..."
-                    : "날짜 조회"}
+                  {loading ? "조회 중..." : "날짜 조회"}
                 </button>
               </div>
 
@@ -339,11 +510,47 @@ export default function AdminCheckPage() {
               </div>
 
               {error && (
-                <div className="error-box">
-                  {error}
-                </div>
+                <div className="error-box">{error}</div>
               )}
+
+              {/* 새로운 개인 기록 저장 버튼 */}
+              <div className="snapshot-panel">
+                <div className="snapshot-title">
+                  💾 오늘 개인 학습 기록 저장
+                </div>
+
+                <p>
+                  노션에서 학생별 시험 점수와 개별 메시지를
+                  모두 입력한 후 눌러 주세요.
+                </p>
+
+                <button
+                  type="button"
+                  className="snapshot-button"
+                  onClick={saveTodaySnapshots}
+                  disabled={snapshotBusy}
+                >
+                  {snapshotBusy
+                    ? "💾 개인 기록 저장 중..."
+                    : "💾 오늘 개인 기록 저장"}
+                </button>
+
+                <div className="snapshot-help">
+                  ※ 조회 날짜와 관계없이 한국 시간 기준
+                  오늘 날짜로 저장합니다.
+                </div>
+
+                {snapshotMessage && (
+                  <div className="snapshot-message">
+                    {snapshotMessage}
+                  </div>
+                )}
+              </div>
             </section>
+
+            {/* ============================== */}
+            {/* 확인 현황 숫자 */}
+            {/* ============================== */}
 
             <section className="summary-grid">
               <div className="summary-card">
@@ -370,6 +577,10 @@ export default function AdminCheckPage() {
                 </strong>
               </div>
             </section>
+
+            {/* ============================== */}
+            {/* 반별 필터 */}
+            {/* ============================== */}
 
             <section className="filter-card">
               <div className="filter-title">
@@ -414,15 +625,16 @@ export default function AdminCheckPage() {
                   type="checkbox"
                   checked={onlyUnchecked}
                   onChange={(event) =>
-                    setOnlyUnchecked(
-                      event.target.checked
-                    )
+                    setOnlyUnchecked(event.target.checked)
                   }
                 />
-
                 <span>미확인 학생만 보기</span>
               </label>
             </section>
+
+            {/* ============================== */}
+            {/* 학생별 확인 현황 */}
+            {/* ============================== */}
 
             <section className="student-card">
               <div className="student-card-head">
@@ -453,10 +665,15 @@ export default function AdminCheckPage() {
                 </div>
               ) : (
                 <div className="student-list">
-                  {visibleStudents.map(
-                    (student) => (
+
+                  {visibleStudents.map((student) => {
+                    const key = studentKey(student);
+                    const isSummaryOpen =
+                      summaryTarget === key;
+
+                    return (
                       <div
-                        key={`${student.level}-${student.name}`}
+                        key={key}
                         className={
                           student.checked
                             ? "student-row checked-row"
@@ -464,9 +681,7 @@ export default function AdminCheckPage() {
                         }
                       >
                         <div className="status-icon">
-                          {student.checked
-                            ? "✅"
-                            : "❌"}
+                          {student.checked ? "✅" : "❌"}
                         </div>
 
                         <div className="student-info">
@@ -480,15 +695,26 @@ export default function AdminCheckPage() {
                               ? ` · ${student.grade}`
                               : ""}
                           </div>
+
+                          {/* 새로운 AI 요약 버튼 */}
+                          <button
+                            type="button"
+                            className="weekly-button"
+                            onClick={() =>
+                              generateWeeklySummary(student)
+                            }
+                            disabled={Boolean(summaryBusy)}
+                          >
+                            {summaryBusy === key
+                              ? "✨ 요약 생성 중..."
+                              : "✨ 주간 요약 + 복사"}
+                          </button>
                         </div>
 
                         <div className="check-info">
                           {student.checked ? (
                             <>
-                              <strong>
-                                확인 완료
-                              </strong>
-
+                              <strong>확인 완료</strong>
                               <span>
                                 {formatCheckedTime(
                                   student.checkedAt
@@ -508,29 +734,86 @@ export default function AdminCheckPage() {
                               <strong className="not-checked-text">
                                 미확인
                               </strong>
-
                               <span>
-                                아직 확인하지
-                                않았습니다.
+                                아직 확인하지 않았습니다.
                               </span>
                             </>
                           )}
                         </div>
+
+                        {/* AI 요약 결과 */}
+                        {isSummaryOpen && (
+                          <div className="weekly-output">
+                            <div className="weekly-output-title">
+                              📝 {student.name} 학생 주간 학습 요약
+                            </div>
+
+                            <p className="weekly-warning">
+                              AI가 작성한 내용을 원본 기록과
+                              비교한 뒤 카카오톡에 발송해 주세요.
+                            </p>
+
+                            <textarea
+                              value={summaryText}
+                              onChange={(event) =>
+                                setSummaryText(event.target.value)
+                              }
+                              placeholder={
+                                summaryBusy === key
+                                  ? "AI가 요약을 생성하고 있습니다..."
+                                  : "주간 요약이 여기에 표시됩니다."
+                              }
+                              rows={12}
+                              aria-label="주간 요약 내용 수정"
+                            />
+
+                            {summaryMessage && (
+                              <div className="weekly-feedback">
+                                {summaryMessage}
+                              </div>
+                            )}
+
+                            <div className="weekly-actions">
+                              <button
+                                type="button"
+                                className="copy-weekly-button"
+                                onClick={copyWeeklySummary}
+                                disabled={!summaryText.trim()}
+                              >
+                                📋 수정한 요약 복사
+                              </button>
+
+                              <button
+                                type="button"
+                                className="close-weekly-button"
+                                onClick={closeWeeklySummary}
+                              >
+                                닫기
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
               )}
             </section>
 
             <div className="admin-note">
               ※ 확인 기록은 학부모님이 학생 이름과
-              보호자 확인번호를 정확히 입력하여 숙제
-              안내장을 정상적으로 열었을 때 기록됩니다.
+              보호자 확인번호를 입력하여 숙제 안내장을
+              정상적으로 열었을 때 기록됩니다.
+              AI 요약은 관리자 전용 기능이며
+              카카오톡으로 자동 발송되지 않습니다.
             </div>
           </>
         )}
       </div>
+
+      {/* ============================== */}
+      {/* 관리자 화면 디자인 */}
+      {/* ============================== */}
 
       <style jsx>{`
         * {
@@ -542,6 +825,7 @@ export default function AdminCheckPage() {
           background: #f5f7fb;
           color: #1f2937;
           padding: 24px 14px 60px;
+          font-family: Arial, sans-serif;
         }
 
         .admin-wrap {
@@ -669,6 +953,7 @@ export default function AdminCheckPage() {
           font-size: 14px;
           line-height: 1.5;
           font-weight: 700;
+          margin-top: 12px;
         }
 
         .control-card {
@@ -693,6 +978,60 @@ export default function AdminCheckPage() {
           font-size: 16px;
           font-weight: 900;
         }
+
+        /* 개인 기록 저장 영역 */
+
+        .snapshot-panel {
+          margin-top: 18px;
+          background: #eef2ff;
+          border: 1px solid #c7d2fe;
+          border-radius: 16px;
+          padding: 16px;
+        }
+
+        .snapshot-title {
+          font-weight: 900;
+          font-size: 16px;
+          color: #312e81;
+        }
+
+        .snapshot-panel p {
+          font-size: 13px;
+          line-height: 1.6;
+          color: #4b5563;
+        }
+
+        .snapshot-button {
+          width: 100%;
+          min-height: 48px;
+          border: 0;
+          border-radius: 12px;
+          background: #4338ca;
+          color: white;
+          font-size: 15px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .snapshot-help {
+          margin-top: 9px;
+          font-size: 11px;
+          color: #6b7280;
+          line-height: 1.5;
+        }
+
+        .snapshot-message {
+          margin-top: 12px;
+          background: white;
+          padding: 12px;
+          border-radius: 12px;
+          font-size: 13px;
+          white-space: pre-line;
+          line-height: 1.7;
+          font-weight: 700;
+        }
+
+        /* 확인 현황 숫자 */
 
         .summary-grid {
           display: grid;
@@ -744,6 +1083,8 @@ export default function AdminCheckPage() {
         .unchecked-summary strong {
           color: #e11d48;
         }
+
+        /* 반 선택 */
 
         .filter-card {
           margin-bottom: 14px;
@@ -797,6 +1138,8 @@ export default function AdminCheckPage() {
           color: #374151;
         }
 
+        /* 학생 목록 */
+
         .student-card {
           padding: 0;
           overflow: hidden;
@@ -838,7 +1181,7 @@ export default function AdminCheckPage() {
 
         .student-row {
           display: grid;
-          grid-template-columns: 34px 1fr auto;
+          grid-template-columns: 34px minmax(0, 1fr) auto;
           align-items: center;
           gap: 10px;
           padding: 16px 18px;
@@ -897,6 +1240,94 @@ export default function AdminCheckPage() {
           color: #e11d48;
         }
 
+        /* 학생별 AI 요약 버튼 */
+
+        .weekly-button {
+          margin-top: 9px;
+          padding: 8px 11px;
+          border: 1px solid #c7d2fe;
+          border-radius: 10px;
+          background: #eef2ff;
+          color: #4338ca;
+          font-weight: 800;
+          font-size: 12px;
+          cursor: pointer;
+          text-align: center;
+        }
+
+        /* AI 요약 결과 */
+
+        .weekly-output {
+          grid-column: 1 / -1;
+          background: #f8faff;
+          border: 1px solid #dbe4ff;
+          border-radius: 16px;
+          padding: 15px;
+          margin-top: 5px;
+          min-width: 0;
+        }
+
+        .weekly-output-title {
+          font-size: 15px;
+          font-weight: 900;
+          color: #312e81;
+        }
+
+        .weekly-warning {
+          font-size: 12px;
+          color: #6b7280;
+          line-height: 1.6;
+        }
+
+        .weekly-output textarea {
+          display: block;
+          width: 100%;
+          padding: 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 12px;
+          background: white;
+          color: #1f2937;
+          font-size: 14px;
+          line-height: 1.7;
+          resize: vertical;
+          font-family: inherit;
+        }
+
+        .weekly-feedback {
+          margin-top: 10px;
+          font-size: 13px;
+          line-height: 1.6;
+          white-space: pre-line;
+          color: #374151;
+        }
+
+        .weekly-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-top: 12px;
+        }
+
+        .copy-weekly-button {
+          border: 0;
+          border-radius: 11px;
+          background: #4338ca;
+          color: white;
+          padding: 12px 15px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .close-weekly-button {
+          border: 1px solid #d1d5db;
+          border-radius: 11px;
+          background: white;
+          color: #374151;
+          padding: 12px 15px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
         .empty-box {
           padding: 38px 20px;
           text-align: center;
@@ -911,6 +1342,8 @@ export default function AdminCheckPage() {
           font-size: 11px;
           line-height: 1.6;
         }
+
+        /* 모바일 화면 */
 
         @media (max-width: 520px) {
           .admin-page {
@@ -934,7 +1367,7 @@ export default function AdminCheckPage() {
           }
 
           .student-row {
-            grid-template-columns: 28px 1fr auto;
+            grid-template-columns: 28px minmax(0, 1fr) auto;
             padding: 15px 14px;
             gap: 8px;
           }
@@ -953,6 +1386,15 @@ export default function AdminCheckPage() {
 
           .summary-card strong {
             font-size: 21px;
+          }
+
+          .weekly-button {
+            font-size: 11px;
+            padding: 8px;
+          }
+
+          .weekly-output {
+            padding: 12px;
           }
         }
       `}</style>
