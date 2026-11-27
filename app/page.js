@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useMemo, useState } from "react";
@@ -50,11 +49,20 @@ function dateButtonLabel(dateString) {
   return formatDateLabel(dateString);
 }
 
+function CuteIcon({ name, small = false }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`cute-icon cute-icon--${name}${small ? " cute-icon--small" : ""}`}
+    />
+  );
+}
+
 function SectionCard({ icon, tone, title, children }) {
   return (
     <div className="info-card">
       <div className="info-title">
-        <div className={`info-icon ${tone}`}>{icon}</div>
+        <div className={`info-icon ${tone}`}><CuteIcon name={icon} /></div>
         <h3>{title}</h3>
       </div>
       <div className="info-body">{children}</div>
@@ -66,33 +74,20 @@ export default function Page() {
   const [studentName, setStudentName] = useState("");
   const [pin, setPin] = useState("");
   const [notice, setNotice] = useState(null);
-  const [individualHistory, setIndividualHistory] =
-    useState([]);
-  const [
-    individualHistoryLoading,
-    setIndividualHistoryLoading
-  ] = useState(false);
-
+  const [individualHistory, setIndividualHistory] = useState([]);
+  const [individualHistoryLoading, setIndividualHistoryLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // 선택한 날짜의 반별 숙제
   const selectedHomework = useMemo(() => {
     if (!notice) return null;
 
     if (notice.homeworkHistory?.length) {
-      return (
-        notice.homeworkHistory.find(
-          (item) => item.date === selectedDate
-        ) || null
-      );
+      return notice.homeworkHistory.find((item) => item.date === selectedDate) || null;
     }
 
-    if (
-      notice.homework &&
-      selectedDate === notice.date
-    ) {
+    if (notice.homework && selectedDate === notice.date) {
       return {
         date: notice.date,
         homework: notice.homework
@@ -102,87 +97,43 @@ export default function Page() {
     return null;
   }, [notice, selectedDate]);
 
-  // 반별 숙제와 개인 기록 날짜를 통합
+  // 날짜 선택은 반별 숙제와 학생별 개인 기록에 공통 적용합니다.
   const sortedHistory = useMemo(() => {
-    const dates = new Set(
-      [
-        ...(notice?.homeworkHistory || []).map(
-          (item) => item.date
-        ),
-        ...individualHistory.map(
-          (item) => item.date
-        )
-      ].filter(Boolean)
-    );
-
-    return [...dates]
-      .sort()
-      .map((date) => ({ date }));
+    const dates = new Set([
+      ...(notice?.homeworkHistory || []).map((item) => item.date),
+      ...individualHistory.map((item) => item.date)
+    ].filter(Boolean));
+    return [...dates].sort().map((date) => ({ date }));
   }, [notice, individualHistory]);
 
-  // 선택한 날짜의 학생별 개인 안내
   const selectedIndividual = useMemo(() => {
-    const saved = individualHistory.find(
-      (item) => item.date === selectedDate
-    );
-
+    const saved = individualHistory.find((item) => item.date === selectedDate);
     if (saved) return saved.alert;
-
-    // 당일 저장 전에는 기존 노션 개인 안내 표시
-    // 과거 날짜에는 최신 안내를 잘못 표시하지 않음
-    if (
-      notice?.alert &&
-      selectedDate === notice.date
-    ) {
-      return notice.alert;
-    }
-
+    // 아직 저장하지 않은 최신 안내는 기존 화면을 유지하되,
+    // 과거 날짜에 현재 안내를 잘못 붙여 표시하지는 않습니다.
+    if (notice?.alert && selectedDate === notice.date) return notice.alert;
     return null;
   }, [individualHistory, notice, selectedDate]);
 
-  // 최근 7일의 개인 기록 가져오기
-  async function loadIndividualHistory(
-    name,
-    studentPin
-  ) {
+  async function loadIndividualHistory(studentName, pin) {
     try {
       setIndividualHistoryLoading(true);
-
-      const response = await fetch(
-        "/api/individual-history",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            studentName: name,
-            pin: studentPin
-          })
-        }
-      );
-
+      const response = await fetch("/api/individual-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentName, pin })
+      });
       if (response.ok) {
         const result = await response.json();
-
-        setIndividualHistory(
-          Array.isArray(result.history)
-            ? result.history
-            : []
-        );
+        setIndividualHistory(result.history || []);
       }
-    } catch (err) {
-      // 개인 기록 조회 실패 시에도
-      // 기존 숙제 안내장은 사용할 수 있습니다.
-      console.error(
-        "Individual history request failed"
-      );
+    } catch (_) {
+      // 이전 기록 조회가 실패해도 현재 숙제 안내장 열람은 유지합니다.
     } finally {
       setIndividualHistoryLoading(false);
     }
   }
 
-  // 숙제 안내장 확인하기
   async function submitNotice(event) {
     event.preventDefault();
 
@@ -195,9 +146,7 @@ export default function Page() {
     }
 
     if (cleanPin.length < 4) {
-      setError(
-        "보호자 확인번호 4자리를 입력해 주세요."
-      );
+      setError("보호자 확인번호 4자리를 입력해 주세요.");
       return;
     }
 
@@ -219,44 +168,28 @@ export default function Page() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(
-          data?.error ||
-            "안내장을 불러오지 못했습니다."
-        );
+        setError(data?.error || "안내장을 불러오지 못했습니다.");
         return;
       }
 
       setNotice(data);
       setIndividualHistory([]);
-
-      // 개인 기록도 함께 불러오기
-      void loadIndividualHistory(
-        cleanName,
-        cleanPin
-      );
+      void loadIndividualHistory(cleanName, cleanPin);
 
       if (data.homeworkHistory?.length) {
-        setSelectedDate(
-          data.homeworkHistory[0].date
-        );
+        setSelectedDate(data.homeworkHistory[0].date);
       } else {
         setSelectedDate(data.date || "");
       }
 
-      window.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
-      setError(
-        "안내장을 불러오는 중 오류가 발생했습니다."
-      );
+      setError("안내장을 불러오는 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   }
 
-  // 첫 화면으로 돌아가기
   function resetToHome() {
     setNotice(null);
     setIndividualHistory([]);
@@ -265,11 +198,7 @@ export default function Page() {
     setPin("");
     setSelectedDate("");
     setError("");
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth"
-    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
@@ -277,23 +206,17 @@ export default function Page() {
       <header className="top">
         <button
           className="back"
-          style={{
-            display: notice ? "block" : "none"
-          }}
+          style={{ display: notice ? "block" : "none" }}
           onClick={resetToHome}
         >
           ‹
         </button>
 
-        <div className="logo">📘</div>
+        <div className="logo" aria-label="ChiidU">C</div>
 
         <div>
-          <div className="brand-small">
-            CHILDU MOST ENGLISH
-          </div>
-          <div className="brand-title">
-            차일드유 숙제 안내장
-          </div>
+          <div className="brand-small">CHILDU MOST ENGLISH</div>
+          <div className="brand-title">차일드유 숙제 안내장</div>
         </div>
       </header>
 
@@ -301,54 +224,27 @@ export default function Page() {
         {!notice && (
           <section>
             <div className="hero">
-              <div className="badge">
-                ✨ 오늘의 학습 안내
-              </div>
-
-              <h1>
-                우리 아이의 오늘 학습 안내를
-                정리해두었습니다.
-              </h1>
-
+              <div className="badge"><CuteIcon name="star" small /> 오늘의 학습 안내</div>
+              <h1>우리 아이의 오늘 학습 안내를 정리해두었습니다.</h1>
               <p>
-                숙제 안내장은 수업 후
-                순차적으로 업데이트됩니다.
-                학생 이름과 보호자 확인번호를
-                입력해 오늘의 학습 내용을
-                확인해 주세요.
+                숙제 안내장은 수업 후 순차적으로 업데이트됩니다.
+                학생 이름과 보호자 확인번호를 입력해 오늘의 학습 내용을 확인해 주세요.
               </p>
-
               <div className="date-pill">
-                📅 <span>{todayText()}</span>
+                <CuteIcon name="calendar" small /> <span>{todayText()}</span>
               </div>
             </div>
 
             <div className="note-box">
-              📌 학생이름과 보호자 확인번호를
-              확인한 후, 바르게 입력해주시길
-              바랍니다.
+              <CuteIcon name="chat" small />
+              <span>학생 이름과 보호자 확인번호를 정확히 입력해 주세요.</span>
             </div>
 
-            <form
-              onSubmit={submitNotice}
-              className="panel"
-            >
-              <div className="panel-head">
-                🔐 학생 정보 확인
-              </div>
+            <form onSubmit={submitNotice} className="panel">
+              <div className="panel-head"><CuteIcon name="lock" small /> 학생 정보 확인</div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gap: "14px"
-                }}
-              >
-                <label
-                  style={{
-                    display: "grid",
-                    gap: "7px"
-                  }}
-                >
+              <div style={{ display: "grid", gap: "14px" }}>
+                <label style={{ display: "grid", gap: "7px" }}>
                   <span
                     style={{
                       fontSize: "13px",
@@ -358,21 +254,15 @@ export default function Page() {
                   >
                     학생 이름
                   </span>
-
                   <input
                     value={studentName}
-                    onChange={(event) =>
-                      setStudentName(
-                        event.target.value
-                      )
-                    }
+                    onChange={(event) => setStudentName(event.target.value)}
                     placeholder="예: ㅇㅇㅇ"
                     autoComplete="off"
                     style={{
                       width: "100%",
                       height: "54px",
-                      border:
-                        "1px solid #e5e7eb",
+                      border: "1px solid #e5e7eb",
                       background: "#f9fafb",
                       borderRadius: "19px",
                       padding: "0 16px",
@@ -383,12 +273,7 @@ export default function Page() {
                   />
                 </label>
 
-                <label
-                  style={{
-                    display: "grid",
-                    gap: "7px"
-                  }}
-                >
+                <label style={{ display: "grid", gap: "7px" }}>
                   <span
                     style={{
                       fontSize: "13px",
@@ -398,16 +283,11 @@ export default function Page() {
                   >
                     보호자 확인번호
                   </span>
-
                   <input
                     className="pin-input"
                     value={pin}
                     onChange={(event) =>
-                      setPin(
-                        event.target.value
-                          .replace(/\D/g, "")
-                          .slice(0, 4)
-                      )
+                      setPin(event.target.value.replace(/\D/g, "").slice(0, 4))
                     }
                     inputMode="numeric"
                     maxLength={4}
@@ -418,24 +298,13 @@ export default function Page() {
               </div>
 
               {error && (
-                <div
-                  className="error-box"
-                  style={{
-                    marginTop: "14px"
-                  }}
-                >
+                <div className="error-box" style={{ marginTop: "14px" }}>
                   {error}
                 </div>
               )}
 
-              <button
-                className="primary"
-                type="submit"
-                disabled={loading}
-              >
-                {loading
-                  ? "확인 중..."
-                  : "안내장 확인하기"}
+              <button className="primary" type="submit" disabled={loading}>
+                {loading ? "확인 중..." : "안내장 확인하기"}
               </button>
             </form>
           </section>
@@ -444,36 +313,17 @@ export default function Page() {
         {notice && (
           <section>
             <div className="student-head">
-              <div className="small">
-                오늘의 학습 안내
-              </div>
-
-              <h2>
-                {notice.studentName} 숙제 안내장
-              </h2>
-
-              <p>
-                {notice.date || todayText()}
-              </p>
+              <div className="small">오늘의 학습 안내</div>
+              <h2>{notice.studentName} 숙제 안내장</h2>
+              <p>{notice.date || todayText()}</p>
             </div>
 
-            {/* 개인별 학습 안내 */}
             <div className="personal">
               <div className="personal-title">
-                <div className="round-icon">
-                  ✨
-                </div>
-
+                <div className="round-icon"><CuteIcon name="chat" /></div>
                 <div>
-                  <div className="caption">
-                    개별 학습 알림
-                  </div>
-
-                  <h3>
-                    {selectedIndividual
-                      ? "선택한 날짜의 개인 안내"
-                      : "개별 안내 없음"}
-                  </h3>
+                  <div className="caption">개별 학습 알림</div>
+                  <h3>{selectedIndividual ? "선택한 날짜의 개인 안내" : "개별 안내 없음"}</h3>
                 </div>
               </div>
 
@@ -481,77 +331,48 @@ export default function Page() {
                 <div>
                   <div className="score-grid">
                     <div className="score">
-                      <div className="k">
-                        단어
-                      </div>
-                      <div className="v">
-                        {selectedIndividual.word ||
-                          "-"}
-                      </div>
+                      <div className="k">단어</div>
+                      <div className="v">{selectedIndividual.word || "-"}</div>
                     </div>
 
                     <div className="score">
-                      <div className="k">
-                        문법/독해
-                      </div>
-                      <div className="v">
-                        {selectedIndividual.grammar ||
-                          "-"}
-                      </div>
+                      <div className="k">문법/독해</div>
+                      <div className="v">{selectedIndividual.grammar || "-"}</div>
                     </div>
 
                     <div className="score">
-                      <div className="k">
-                        재시험
-                      </div>
-                      <div className="v">
-                        {selectedIndividual.retest ||
-                          "-"}
-                      </div>
+                      <div className="k">재시험</div>
+                      <div className="v">{selectedIndividual.retest || "-"}</div>
                     </div>
                   </div>
 
                   {selectedIndividual.homeworkStatus && (
                     <div className="memo">
-                      <strong>
-                        숙제 확인
-                      </strong>
+                      <strong>숙제 확인</strong>
                       <br />
-                      {
-                        selectedIndividual.homeworkStatus
-                      }
+                      {selectedIndividual.homeworkStatus}
                     </div>
                   )}
 
                   {selectedIndividual.individualNotice && (
                     <div className="memo">
-                      <strong>
-                        개별 전달사항
-                      </strong>
+                      <strong>개별 전달사항</strong>
                       <br />
-                      {
-                        selectedIndividual.individualNotice
-                      }
+                      {selectedIndividual.individualNotice}
                     </div>
                   )}
 
                   {selectedIndividual.individualHomework && (
                     <div className="memo">
-                      <strong>
-                        개별 숙제
-                      </strong>
+                      <strong>개별 숙제</strong>
                       <br />
-                      {
-                        selectedIndividual.individualHomework
-                      }
+                      {selectedIndividual.individualHomework}
                     </div>
                   )}
 
                   {selectedIndividual.memo && (
                     <div className="memo">
-                      <strong>
-                        개별 안내
-                      </strong>
+                      <strong>개별 안내</strong>
                       <br />
                       {selectedIndividual.memo}
                     </div>
@@ -561,179 +382,74 @@ export default function Page() {
                     !selectedIndividual.individualNotice &&
                     !selectedIndividual.individualHomework &&
                     !selectedIndividual.memo && (
-                      <div className="memo">
-                        개별 안내는 없습니다.
-                      </div>
+                      <div className="memo">개별 안내는 없습니다.</div>
                     )}
                 </div>
               ) : (
                 <div className="memo">
-                  이 날짜에 저장된 개인 기록이
-                  없습니다. 반 공통 숙제도
-                  확인해 주세요.
+                  이 날짜에 저장된 개인 기록이 없습니다. 반 공통 숙제도 확인해 주세요.
                 </div>
               )}
             </div>
 
-            {/* 학습 날짜 선택 */}
             {sortedHistory.length > 0 && (
-              <div
-                className="panel"
-                style={{
-                  marginTop: "16px"
-                }}
-              >
-                <div className="panel-head">
-                  📅 학습 안내 날짜 선택
-                </div>
+              <div className="panel" style={{ marginTop: "16px" }}>
+                <div className="panel-head"><CuteIcon name="calendar" small /> 학습 안내 날짜 선택</div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    overflowX: "auto",
-                    paddingBottom: "4px"
-                  }}
-                >
+<div className="history-dates">
                   {sortedHistory.map((item) => {
-                    const isToday =
-                      item.date ===
-                      todayIsoKst(0);
-
-                    const isSelected =
-                      selectedDate ===
-                      item.date;
+                    const isToday = item.date === todayIsoKst(0);
+                    const isSelected = selectedDate === item.date;
 
                     return (
                       <button
                         key={item.date}
                         type="button"
-                        onClick={() =>
-                          setSelectedDate(
-                            item.date
-                          )
-                        }
-                        style={{
-                          flex: "0 0 auto",
-                          border: isToday
-                            ? "2px solid #ef4444"
-                            : isSelected
-                            ? "2px solid #2563eb"
-                            : "1px solid #e5e7eb",
-                          background: isToday
-                            ? "#ef4444"
-                            : isSelected
-                            ? "#eff6ff"
-                            : "#ffffff",
-                          borderRadius:
-                            "999px",
-                          padding:
-                            "10px 14px",
-                          fontSize: "14px",
-                          fontWeight: 900,
-                          color: isToday
-                            ? "#ffffff"
-                            : isSelected
-                            ? "#1d4ed8"
-                            : "#374151",
-                          boxShadow: isToday
-                            ? "0 8px 18px rgba(239, 68, 68, 0.22)"
-                            : "none"
-                        }}
+                        onClick={() => setSelectedDate(item.date)}
+                        className={`history-day${isSelected ? " is-selected" : ""}${isToday ? " is-today" : ""}`}
                       >
-                        {dateButtonLabel(
-                          item.date
-                        )}
+                        {dateButtonLabel(item.date)}
                       </button>
                     );
                   })}
                 </div>
 
-                <div
-                  style={{
-                    marginTop: "10px",
-                    fontSize: "13px",
-                    color: "#6b7280",
-                    lineHeight: 1.5
-                  }}
-                >
-                  최근 7일 동안 저장된
-                  반별 숙제와 개인 안내를
-                  날짜별로 확인할 수 있습니다.
-                  {individualHistoryLoading &&
-                    " 개인 기록을 불러오는 중입니다..."}
+<div className="history-help">
+                  최근 7일 동안 저장된 반별 숙제와 개인 안내를 날짜별로 확인할 수 있습니다.
+                  {individualHistoryLoading && " 개인 기록을 불러오는 중입니다..."}
                 </div>
               </div>
             )}
 
-            {/* 선택한 날짜의 반별 숙제 */}
             {!selectedHomework?.homework ? (
               <div className="error-box">
-                선택한 날짜에 등록된 숙제가
-                없습니다. 학원에서 순차적으로
-                업데이트 중입니다.
+                선택한 날짜에 등록된 숙제가 없습니다. 학원에서 순차적으로 업데이트 중입니다.
               </div>
             ) : (
               <div>
-                <div
-                  style={{
-                    margin:
-                      "18px 2px 10px",
-                    fontSize: "15px",
-                    fontWeight: 900,
-                    color: "#374151"
-                  }}
-                >
-                  📌{" "}
-                  {formatDateLabel(
-                    selectedHomework.date
-                  )}{" "}
-                  숙제 안내
+                <div className="homework-date-heading">
+                  <CuteIcon name="calendar" small />
+                  <span>{formatDateLabel(selectedHomework.date)} 숙제 안내</span>
                 </div>
 
-                <SectionCard
-                  icon="✅"
-                  tone="blue"
-                  title="지난 숙제"
-                >
-                  {selectedHomework.homework
-                    .previous || "-"}
+                <SectionCard icon="clipboard" tone="blue" title="지난 숙제">
+                  {selectedHomework.homework.previous || "-"}
                 </SectionCard>
 
-                <SectionCard
-                  icon="📣"
-                  tone="rose"
-                  title="전달사항"
-                >
-                  {selectedHomework.homework
-                    .notice || "-"}
+                <SectionCard icon="megaphone" tone="rose" title="전달사항">
+                  {selectedHomework.homework.notice || "-"}
                 </SectionCard>
 
-                <SectionCard
-                  icon="📘"
-                  tone="yellow"
-                  title="오늘의 수업"
-                >
-                  {selectedHomework.homework
-                    .todayClass || "-"}
+                <SectionCard icon="book" tone="yellow" title="오늘의 수업">
+                  {selectedHomework.homework.todayClass || "-"}
                 </SectionCard>
 
-                <SectionCard
-                  icon="📝"
-                  tone="orange"
-                  title="오늘의 숙제"
-                >
-                  {selectedHomework.homework
-                    .homework || "-"}
+                <SectionCard icon="notebook" tone="orange" title="오늘의 숙제">
+                  {selectedHomework.homework.homework || "-"}
                 </SectionCard>
 
-                <SectionCard
-                  icon="✨"
-                  tone="green"
-                  title="온라인 숙제"
-                >
-                  {selectedHomework.homework
-                    .online || "-"}
+                <SectionCard icon="laptop" tone="green" title="온라인 숙제">
+                  {selectedHomework.homework.online || "-"}
                 </SectionCard>
               </div>
             )}
